@@ -5,8 +5,10 @@ description = "A personal project to reproduce LLM pruning paper"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.11.1",
     "numpy",
     "torch==2.14.0+cu132",
+    "torchvision>=0.29.0",
 ]
 
 [[tool.uv.index]]

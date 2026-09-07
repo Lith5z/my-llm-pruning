@@ -1,3 +1,5 @@
+"""test torch.cuda"""
+
 import torch
 
 if torch.cuda.is_available():
