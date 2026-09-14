@@ -4,7 +4,7 @@
 
 尝试复现以下论文中的剪枝操作
 
-1. [Deep Compression: Compressing Deep Neural Networks with Pruning, Trained Quantization and Huffman Coding](https://arxiv.org/abs/1510.00149)
+1. [Deep Compression: Compressing Deep Neural Networks with Pruning, Trained Quantization and Huffman Coding](https://arxiv.org/abs/1510.00149)【已完成】
 2. [SparseGPT: Massive Language Models Can be Accurately Pruned in One-Shot](https://arxiv.org/abs/2301.00774)
 3. [A Simple and Effective Pruning Approach for Large Language Models](https://arxiv.org/abs/2306.11695)
 
@@ -15,6 +15,12 @@
 
 前者我能够快速本地训练和测试，后者我勉强能在本地完成推理
 
+前者相对原版AlexNet的修改
+1. LRN -> BatchNorm
+2. 每个conv后都跟BN 原版conv3~5之间没有归一化
+3. 全部使用3*3卷积核
+4. FC层只用单层 只做简单映射到类别数
+
 ## Deep Compression
 
 ```shell
@@ -22,6 +28,24 @@ python model.py
 python pruning.py
 python compression.py --stage sparse|quant|huffman
 ```
+
+局限性：
+
+- 没有实现三个步骤，尤其是剪枝和量化的消融实验；
+- 超参数的选取比较随意，没有经过筛选，尤其是没有按层敏感度分级稀疏度；
+- AI实现的代码未经过审查
+
+### 结论
+
+| sparsity | acc（剪枝） | acc（+权重共享） | acc（+Huffman） | 稀疏 KB | +权重共享 KB | +Huffman KB | 稀疏 | +权重共享 | +Huffman |
+| -------- | ----------- | ---------------- | --------------- | ------- | ------------ | ----------- | ---- | --------- | -------- |
+| 0.50 | 0.8925 | 0.8908 | 0.8908 | 1008.23 | 304.63 | 148.44 | 1.60x | 5.29x | 10.86x |
+| 0.60 | 0.8901 | 0.8860 | 0.8860 | 807.38 | 244.58 | 129.33 | 2.00x | 6.59x | 12.46x |
+| 0.70 | 0.8834 | 0.8802 | 0.8802 | 606.52 | 184.53 | 106.07 | 2.66x | 8.73x | 15.19x |
+| 0.80 | 0.8639 | 0.8574 | 0.8574 | 405.66 | 124.48 | 79.01 | 3.97x | 12.94x | 20.39x |
+| 0.90 | 0.7807 | 0.7779 | 0.7779 | 204.81 | 64.43 | 47.51 | 7.87x | 25.01x | 33.92x |
+
+压缩率和论文35x且基本不损失精度差距有点大，不过实验所用的网络和AlexNet有比较大的不同，主要是大大减少了fc层，96.3%参数在conv，而论文绝大部分在fc层，fc层又是对剪枝最不敏感的
 
 ### 文件
 
@@ -163,16 +187,3 @@ index 差值流是主要受益者：实测只要 2.01~4.56 bits/符号（定长�
 落盘文件 `compressed_s*.pt` 还带 bias/BN 与文件头（例如 0.50 是 178.54 KB）；只用该文件重建模型，权重与上一步逐位相同（最大偏差 0），准确率一位不差。
 
 ![huffman size results](DeepCompression/huffman_size_results.png)
-
-### 结论
-
-| sparsity | acc（剪枝） | acc（+权重共享） | acc（+Huffman） | 稀疏 KB | +权重共享 KB | +Huffman KB | 稀疏 | +权重共享 | +Huffman |
-| -------- | ----------- | ---------------- | --------------- | ------- | ------------ | ----------- | ---- | --------- | -------- |
-| 0.50 | 0.8925 | 0.8908 | 0.8908 | 1008.23 | 304.63 | 148.44 | 1.60x | 5.29x | 10.86x |
-| 0.60 | 0.8901 | 0.8860 | 0.8860 | 807.38 | 244.58 | 129.33 | 2.00x | 6.59x | 12.46x |
-| 0.70 | 0.8834 | 0.8802 | 0.8802 | 606.52 | 184.53 | 106.07 | 2.66x | 8.73x | 15.19x |
-| 0.80 | 0.8639 | 0.8574 | 0.8574 | 405.66 | 124.48 | 79.01 | 3.97x | 12.94x | 20.39x |
-| 0.90 | 0.7807 | 0.7779 | 0.7779 | 204.81 | 64.43 | 47.51 | 7.87x | 25.01x | 33.92x |
-
-Huffman 是无损的，所以最后两列准确率相同；相对 baseline 0.8958，压缩本身几乎不损失准确率，准确率的下降几乎全部来自剪枝那一步。
-把不压缩的 bias/BN（9.45 KB）也算进来的话，整个模型大约是 0.50 的 10.2x 到 0.90 的 28.4x。
