@@ -1,0 +1,44 @@
+=== step 1: 稀疏存储（CSR/CSC + index diff） ===
+conv/fc 权重 dense = 1611.38 KB (412512 params x fp32)
+不压缩部分：bias/BN 参数 = 5.66 KB，BN buffer = 3.79 KB
+conv: CSR，行=输出通道，index diff 8 bits；fc: CSC（转置后行=输入特征），index diff 5 bits
+sparsity       kept |     acc | value_KB index_KB count_KB weights_KB  file_KB   ratio
+--------------------------------------------------------------------------------------
+    0.50     0.5000 |  0.8926 |   805.69   198.61     3.94    1008.23  1014.66   1.60x
+    0.75     0.2500 |  0.8769 |   402.84    99.30     3.94     506.09   512.47   3.18x
+    0.90     0.1000 |  0.7786 |   161.15    39.72     3.94     204.81   210.97   7.87x
+    0.95     0.0500 |  0.6287 |    80.58    19.86     3.94     104.38   110.47  15.44x
+说明：weights_KB = 值流(fp32) + index 差值流 + 行计数；file_KB = 实际落盘文件大小；ratio = dense 权重 / weights_KB。
+
+=== step 2: 权重共享（k-means 量化 + centroid 微调） ===
+conv 4 bits（16 centroids）/ fc 5 bits（32 centroids），逐层独立 k-means（线性初始化 + Lloyd 迭代）
+centroid 微调：10 epochs，lr=0.001，momentum=0.9，weight_decay=1e-4，BN/bias 一起训练；index 与剪枝结构不变
+dense conv/fc 权重 = 1611.38 KB（分母，与 step 1 相同）；不压缩部分：bias/BN 参数 = 5.66 KB
+sparsity     nnz | acc_pruned  acc_quant acc_quant_ft | value_KB index_KB count_KB  cb_KB weights_KB  file_KB    ratio
+----------------------------------------------------------------------------------------------------------------------
+    0.50  206256 |     0.8926     0.8824       0.8928 |   101.65   198.61     3.94  0.438     304.63   330.67    5.29x
+    0.75  103128 |     0.8769     0.8613       0.8678 |    50.82    99.30     3.94  0.438     154.50   180.49   10.43x
+    0.90   41254 |     0.7786     0.7468       0.7807 |    20.33    39.72     3.94  0.438      64.43    90.24   25.01x
+    0.95   20628 |     0.6287     0.5552       0.6291 |    10.17    19.86     3.94  0.438      34.40    60.17   46.84x
+
+对比 step 1（值流 fp32）：值流位宽 32 -> conv 4 / fc 5 bits，index 流与行计数不变，codebook 每层额外 k x 32 bits。
+sparsity=0.50: step 1 1008.23 KB (1.60x) -> +权重共享 304.63 KB (5.29x)，加权 RMSE=0.00551，微调最优 Acc=0.8928
+sparsity=0.75: step 1 506.09 KB (3.18x) -> +权重共享 154.50 KB (10.43x)，加权 RMSE=0.00597，微调最优 Acc=0.8678
+sparsity=0.90: step 1 204.81 KB (7.87x) -> +权重共享 64.43 KB (25.01x)，加权 RMSE=0.00849，微调最优 Acc=0.7807
+sparsity=0.95: step 1 104.38 KB (15.44x) -> +权重共享 34.40 KB (46.84x)，加权 RMSE=0.00947，微调最优 Acc=0.6291
+
+=== step 3: Huffman 编码（cluster index 流 + index 差值流） ===
+每层两条流各自统计频率 -> Huffman 树 -> 规范码（只存码长，不存码字），位流 MSB-first 打包
+dense conv/fc 权重 = 1611.38 KB（分母，与 step 1/2 相同）；不压缩部分：bias/BN 参数 = 5.66 KB + BN buffer 3.79 KB（随文件原样保存）
+行计数（16 bits）与 codebook（k x fp32）不参与 Huffman，与论文一致
+sparsity     nnz |     acc |  val_KB valtab_KB  idx_KB idxtab_KB  cnt_KB  cb_KB weights_KB  file_KB    ratio
+------------------------------------------------------------------------------------------------------------
+    0.50  206256 |  0.8928 |   92.16     0.109   50.58     1.281    3.94  0.438     148.51   178.48   10.85x
+    0.75  103128 |  0.8678 |   46.50     0.109   40.79     1.281    3.94  0.438      93.05   123.10   17.32x
+    0.90   41254 |  0.7807 |   18.84     0.109   22.96     1.281    3.94  0.438      47.56    77.60   33.88x
+    0.95   20628 |  0.6291 |    9.40     0.109   13.74     1.281    3.94  0.438      28.91    59.04   55.73x
+说明：weights_KB = 值流 + index 流 + 两张码长表 + 行计数 + codebook；file_KB = 实际落盘文件大小（含 bias/BN）；ratio = dense 权重 / weights_KB。
+sparsity=0.50: 稀疏 1008.23 KB -> +权重共享 304.63 KB (5.29x) -> +Huffman 148.51 KB (10.85x)，Huffman 再省 51.3%，Acc=0.8928
+sparsity=0.75: 稀疏 506.09 KB -> +权重共享 154.50 KB (10.43x) -> +Huffman 93.05 KB (17.32x)，Huffman 再省 39.8%，Acc=0.8678
+sparsity=0.90: 稀疏 204.81 KB -> +权重共享 64.43 KB (25.01x) -> +Huffman 47.56 KB (33.88x)，Huffman 再省 26.2%，Acc=0.7807
+sparsity=0.95: 稀疏 104.38 KB -> +权重共享 34.40 KB (46.84x) -> +Huffman 28.91 KB (55.73x)，Huffman 再省 16.0%，Acc=0.6291
