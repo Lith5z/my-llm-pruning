@@ -11,3 +11,4 @@ wheels/
 
 # Model parameters
 *.pth
+*.pt
