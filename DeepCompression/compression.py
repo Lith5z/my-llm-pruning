@@ -64,7 +64,7 @@ from weight_sharing import (
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ---------------- 实验超参数 ----------------
-SPARSITIES = [0.5, 0.75, 0.9, 0.95]
+SPARSITIES = [0.5, 0.6, 0.7, 0.8, 0.9]
 PRUNED_PREFIX = "pruned_s"
 MASK_PREFIX = "mask_s"
 COMPRESSION_LOG_FILE = "log_compression.txt"

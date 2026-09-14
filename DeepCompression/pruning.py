@@ -23,7 +23,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ---------------- 实验超参数 ----------------
 # 需要扫描的稀疏度：0.5 表示每层剪掉 |w| 最小的 50%
-SPARSITIES = [0.5, 0.75, 0.9, 0.95]
+SPARSITIES = [0.5, 0.6, 0.7, 0.8, 0.9]
 # 微调
 FINETUNE_EPOCHS = 15
 FINETUNE_LR = 0.001
